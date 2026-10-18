@@ -43,7 +43,7 @@ flowchart LR
 ## Large-input handling
 
 - **Streaming is mandatory** (30 GB RAM vs ~16 GB dataset): both preparation and workers must read bounded windows of data, never whole files. [Confirmed]
-- **CSV structure implications** [Confirmed from sample]: semicolon delimiter, all fields quoted, quoted fields may contain delimiters (and potentially line breaks in the full data), **no header row**. Any partitioner must therefore split on record boundaries (newline inside unclosed quote handling), not on raw line counts. Splitting by byte ranges requires resynchronization at the next valid record boundary.
+- **CSV structure implications** [Confirmed from sample + measurements]: semicolon delimiter, all fields quoted, quoted fields may contain delimiters and line breaks (observed in real data), **no header row**, **ISO-8859-1 encoding** (Latin-1, not UTF-8 — verified by byte analysis). Any partitioner must split on record boundaries (quote-aware), and byte offsets must be Latin-1-exact: the pipeline decodes raw CSVs as latin1 so 1 char = 1 byte.
 - **Measured dataset shape** [Confirmed — streaming line counts, 2026-10-18]: part 0 = 31,028,468 records (7.26 GB); parts 1–9 ≈ 4,753,435 records (~1.1 GB) each; total ≈ 73.8M records / 16.2 GB. The release is imbalanced by CNPJ range — partitioning and experiment design must account for part 0 being ~6.5× larger.
 - **Partitioning** [Implemented]: record-aligned byte ranges — preparation splits on line starts via `LineCounter` offsets (a unit closes only at a record boundary), so `Range` reads never truncate a record. Base units 16 MB; composed experiment sizes 64/256/1024 MB via `composeUnits`. Part 0's 6.5× imbalance is handled naturally (more units for that file).
 
@@ -77,6 +77,7 @@ flowchart LR
 - S3 `memory` storage mode has a ~2 GiB cap → **use disk-backed persistent S3 storage** (`FLOCI_STORAGE_SERVICES_S3_MODE=persistent`) for the 16 GB dataset; multipart upload supported.
 - Step Functions `Wait`/`Retry` pauses capped at 30 s locally (`max-wait-seconds`); provisioned concurrency unimplemented; large-function cold-start populates can serialize (tunable via `FLOCI_SERVICES_LAMBDA_CODE_VOLUME_POPULATE_CONCURRENCY`).
 - `floci-cli` supports `profiles` and `snapshot save/load` for reproducible experiment instances.
+- Flakiness observed in persistent mode: `cdklocal deploy` intermittently fails with `ChangeSetNotFoundException` (Floci executes/deletes changesets before CDK polls them); retrying (optionally with `-v`) succeeds. Note for the workflow: redeploys may need 1–2 retries.
 
 **Fidelity limits to respect** [Confirmed expectations]:
 - Emulator timings ≠ AWS timings (startup, cold starts, network, orchestration latency). Local and AWS runs are separate measurement regimes; local results are for development, correctness, and *relative* concurrency scaling, not absolute performance claims.
