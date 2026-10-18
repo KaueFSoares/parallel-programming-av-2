@@ -21,6 +21,7 @@ import {
 } from "@aws-sdk/client-sfn";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { baseClientOptions, s3ClientOptions } from "./shared/aws-client.js";
 import {
   ConsolidateResult,
   PipelineInput,
@@ -37,6 +38,7 @@ interface Args {
   stateMachine: string;
   endpoint: string;
   region: string;
+  account: string;
   out: string;
   timeoutMs: number;
 }
@@ -58,8 +60,9 @@ function parseArgs(argv: string[]): Args {
     warmup: Number(get("--warmup", "1")),
     bucket: get("--bucket", "cnpj-pipeline-000000000000") ?? "",
     stateMachine: get("--state-machine", "cnpj-pipeline") ?? "",
-    endpoint: get("--endpoint", "http://localhost:4566") ?? "",
-    region: get("--region", "us-east-1") ?? "",
+    endpoint: get("--endpoint", process.env.AWS_ENDPOINT_URL ?? "http://localhost:4566") ?? "",
+    region: get("--region", process.env.AWS_DEFAULT_REGION ?? "us-east-1") ?? "",
+    account: get("--account", process.env.AWS_ACCOUNT ?? "000000000000") ?? "",
     out: get("--out", join("data", "results", `exp-${Date.now()}.json`)) ?? "",
     timeoutMs: Number(get("--timeout-ms", String(30 * 60 * 1000))),
   };
@@ -141,10 +144,9 @@ async function main(): Promise<void> {
   const expectedRows = manifest.reduce((acc, u) => acc + u.rows, 0);
   const config = { unitsMb: unitsMbFromFilename(args.manifest), manifestKey };
 
-  const creds = { accessKeyId: "test", secretAccessKey: "test" };
-  const s3 = new S3Client({ endpoint: args.endpoint, region: args.region, credentials: creds, forcePathStyle: true });
-  const sfn = new SFNClient({ endpoint: args.endpoint, region: args.region, credentials: creds });
-  const stateMachineArn = `arn:aws:states:${args.region}:000000000000:stateMachine:${args.stateMachine}`;
+  const s3 = new S3Client(s3ClientOptions({ endpoint: args.endpoint, region: args.region }));
+  const sfn = new SFNClient(baseClientOptions({ endpoint: args.endpoint, region: args.region }));
+  const stateMachineArn = `arn:aws:states:${args.region}:${args.account}:stateMachine:${args.stateMachine}`;
 
   // make sure the manifest is in S3 (ItemReader reads it from there)
   await s3.send(

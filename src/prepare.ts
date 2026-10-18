@@ -23,6 +23,7 @@ import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { composeUnits } from "./core/compose.js";
 import { ScanUnit, UnitScanner } from "./core/prep-scan.js";
+import { s3ClientOptions } from "./shared/aws-client.js";
 import { BaseManifest } from "./shared/types.js";
 
 const MB = 1024 * 1024;
@@ -79,7 +80,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     composeMb: parseComposeMb("64,256,1024"),
     bucket: undefined,
     rawPrefix: "raw",
-    endpoint: "http://localhost:4566",
+    endpoint: process.env.AWS_ENDPOINT_URL ?? "http://localhost:4566",
     region: "us-east-1",
     uploadRaw: false,
   };
@@ -236,12 +237,7 @@ async function syncToS3(
 ): Promise<void> {
   const bucket = opts.bucket;
   if (bucket === undefined) return;
-  const client = new S3Client({
-    endpoint: opts.endpoint,
-    region: opts.region,
-    forcePathStyle: true,
-    credentials: { accessKeyId: "test", secretAccessKey: "test" },
-  });
+  const client = new S3Client(s3ClientOptions({ endpoint: opts.endpoint, region: opts.region }));
 
   for (const raw of scanned) {
     if (await objectMatches(client, bucket, raw.key, raw.size)) continue;

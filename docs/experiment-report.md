@@ -80,3 +80,15 @@ npm run experiment -- --manifest data/manifests/units-64mb.json \
   --bucket cnpj-pipeline-000000000000
 npm run report -- data/results/exp-64mb.json data/results/exp-256mb.json data/results/exp-1024mb.json --out data/results/combined.md
 ```
+
+## 7. Planned AWS comparison
+
+The local curve already shows where real AWS should change the picture: the ceiling was attributed to the **single in-process emulated S3 service** and CPU saturation. On real AWS, S3 throughput is distributed, so the interesting question is whether speedup keeps climbing past the local peak (p = 12) instead of degrading. The plan therefore skips the low-concurrency ladder (already characterized locally, where the emulator is faithful) and brackets the region of interest:
+
+- **Level 0 — smoke:** sample manifest, p = 1. Validates IAM, deploy, and end-to-end correctness on real AWS. (~$0.01)
+- **Level 1 — core comparison (recommended):** full dataset, 64 MiB units, p ∈ {1, 12, 32, 64}, 3 reps + 1 warm-up each (16 runs). p = 1 is the AWS baseline (do not reuse the local T(1)); p = 12 is the local peak; p = 32 the local degradation point; p = 64 tests whether scaling continues where the emulator stopped. Estimated **≈ $0.17 compute** + ~$0.37/month storage (16 GiB, prorated) — under $0.50 all-in.
+- **Level 1b — optional memory probe:** p = 32 with worker memory 1024 vs 1769 MB (2 runs, ~$0.02) to see how Lambda's per-worker vCPU allocation shifts the baseline.
+- **Level 2 — conditional full ladder:** p ∈ {1…128} × 3 reps (~44 runs, ≈ $0.60) — only if Level 1 shows the curve moved materially.
+- **Level 3 — optional cold-start pass:** measure the p = 64 wave with forced cold starts (~$0.10).
+
+Per-run cost model (us-east-1, 2026 list prices): Lambda ≈ $0.0025 (≈150 GB-s @ 1024 MB + 265 requests), Step Functions ≈ $0.007 (≈270 state transitions: 264 child worker states + parent Map + consolidate), S3 ≈ $0.002 (≈530 requests). Total ≈ **$0.011 per full-dataset run**; the whole program fits within roughly **$1–3** including a month of storage. The dominant human-time cost is the one-time 16 GiB upload (bandwidth-dependent); the data is uploaded once and reused by every run.
