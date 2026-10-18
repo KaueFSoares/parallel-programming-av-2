@@ -20,3 +20,6 @@ floci-data/
 
 # OS/editor
 .DS_Store
+
+# Idea
+.idea
