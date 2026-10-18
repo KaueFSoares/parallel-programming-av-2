@@ -103,6 +103,8 @@ export interface ConsolidateEvent {
   bucket: string;
   outPrefix: string;
   expectedUnits: number;
+  /** Total rows expected across all units (from the manifest; completeness check). */
+  expectedRows: number;
   partials: WorkerResult[];
 }
 
@@ -111,6 +113,8 @@ export interface ConsolidateResult {
   units: number;
   expectedUnits: number;
   rows: number;
+  expectedRows: number;
+  rowsMatched: boolean;
   malformed: number;
   verified: boolean;
   ms: number;
@@ -124,6 +128,8 @@ export interface PipelineInput {
   maxConcurrency: number;
   /** Number of units in the manifest (completeness check). */
   expectedUnits: number;
+  /** Total rows across all manifest units (completeness check). */
+  expectedRows: number;
   /** Run-scoped output prefix, e.g. "runs/2026-10-18T22-00-00". */
   outPrefix: string;
 }
@@ -151,4 +157,23 @@ export interface FinalResult {
     fanOut: number;
     consolidate: number;
   };
+}
+
+/** One measured pipeline run, recorded by the experiment harness. */
+export interface RunRecord {
+  runId: string;
+  config: { unitsMb: number; maxConcurrency: number; manifestKey: string };
+  status: string;
+  /** Warm-up runs are recorded but excluded from statistics. */
+  warmup?: boolean;
+  startedAt: string;
+  finishedAt: string;
+  /** Span from first to last execution-history event (ms). */
+  totalMs: number;
+  /** MapRunStarted -> MapRunSucceeded span (ms). */
+  fanOutMs: number;
+  /** Consolidator task scheduled -> succeeded span (ms). */
+  consolidateMs: number;
+  result: ConsolidateResult | undefined;
+  error: string | undefined;
 }

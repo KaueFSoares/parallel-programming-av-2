@@ -38,7 +38,7 @@ export class LineCounter {
   private readonly expected: number;
   private readonly extractSet: Set<number>;
   private readonly track: boolean;
-  private readonly onLineStart?: (byteOffset: number) => void;
+  private readonly onLineStart: ((byteOffset: number) => void) | undefined;
 
   private inQuotes = false;
   private quoteEsc = false; // a closing quote was just seen; next quote is escaped
@@ -82,7 +82,7 @@ export class LineCounter {
           continue;
         }
         const units = charUnits(s, i);
-        if (this.capturing) this.fieldChars!.push(units === 2 ? s.slice(i, i + 2) : s[i]);
+        if (this.capturing) this.fieldChars!.push(units === 2 ? s.slice(i, i + 2) : s.charAt(i));
         i += units;
         if (track) this.bytes += charBytes(s, i - units);
         this.lineHasContent = true;
@@ -135,7 +135,7 @@ export class LineCounter {
         continue;
       }
       const units = charUnits(s, i);
-      if (this.capturing) this.fieldChars!.push(units === 2 ? s.slice(i, i + 2) : s[i]);
+      if (this.capturing) this.fieldChars!.push(units === 2 ? s.slice(i, i + 2) : s.charAt(i));
       i += units;
       if (track) this.bytes += charBytes(s, i - units);
       this.lineHasContent = true;

@@ -26,6 +26,7 @@
     "@types/node": "^24.0.0",
     "aws-cdk": "^2.160.0",
     "aws-cdk-lib": "^2.160.0",
+    "aws-cdk-local": "^3.0.4",
     "constructs": "^10.4.0",
     "esbuild": "^0.24.0",
     "tsx": "^4.19.0",
