@@ -159,8 +159,8 @@ async function scanFile(
   key: string,
   baseUnitBytes: number,
 ): Promise<{ units: ScanUnit[]; size: number }> {
-  const scanner = new UnitScanner(baseUnitBytes, key);
-  const decoder = new StringDecoder("utf8");
+  const scanner = new UnitScanner(baseUnitBytes, key, { singleByte: true });
+  const decoder = new StringDecoder("latin1");
   let size = 0;
   const stream = createReadStream(path, { highWaterMark: READ_CHUNK_BYTES });
   for await (const chunk of stream) {

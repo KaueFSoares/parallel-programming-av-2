@@ -10,8 +10,8 @@ import { FIELD_COUNT } from "../src/shared/types.js";
 const file = process.argv[2] ?? "data/samples/example.csv";
 const limitBytes = Number(process.argv[3] ?? Infinity) * 1024 * 1024;
 
-const decoder = new StringDecoder("utf8");
-const counter = new LineCounter(FIELD_COUNT, { extract: [3, 5, 11, 19, 20] });
+const decoder = new StringDecoder("latin1");
+const counter = new LineCounter(FIELD_COUNT, { extract: [3, 5, 11, 19, 20], singleByte: true });
 let consumed = 0;
 const t0 = performance.now();
 

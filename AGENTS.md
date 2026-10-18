@@ -14,7 +14,7 @@ These files are the shared source of truth. If they contradict each other or the
 ## Environment
 
 - **Node.js 24.22.0** via NVM, pinned in `.nvmrc`. Do not switch versions or modify the runtime setup as a side effect of other work.
-- **TypeScript** is the implementation language. No package manager, build tooling, linter, or test runner has been established yet — do not invent or present unconfigured commands as if they exist.
+- **TypeScript** is the implementation language. **Established tooling** (do not add alternatives casually): npm + Node 24 (`.nvmrc`), strict TS via `tsc` (`npm run build`), `vitest` for tests (`npm test`), `tsx` for CLIs, esbuild via CDK `NodejsFunction`, `cdklocal` for deploys.
 - **Docker** is required for local AWS emulation. The chosen emulator is **Floci** — the *only* supported emulator (LocalStack is explicitly out of scope). Floci is installed and validated (floci-cli 0.4.0 at `~/.local/bin`): start with `floci start`, configure with `eval "$(floci env)"`, stop with `floci stop`. Pin the image to a fixed release (2.3.0) in project configuration — never `latest`.
 - **AWS CDK is the confirmed IaC tool.** The validated local workflow is `cdklocal` (aws-cdk-local v3): `cdklocal synth`, `cdklocal bootstrap --force`, `cdklocal deploy --require-approval never`, with `AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566` set for asset publishing.
 
@@ -26,18 +26,19 @@ These files are the shared source of truth. If they contradict each other or the
 
 ## Coding conventions
 
-Not yet established (no `package.json` exists). Until they exist, follow these standing rules:
+Established (see `tsconfig.json`): strict TypeScript (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), ESM (`"type": "module"`, NodeNext), 2-space indent, double quotes, semicolons. Also:
 
 - **Emulator-agnostic code.** Use AWS SDK v3 and the standard `AWS_ENDPOINT_URL` mechanism. Never call emulator-specific APIs, endpoints, or environment variables in application code; configuration may reference Floci only at the operational layer.
-- Use disk-backed S3 storage for the dataset (Floci `memory` mode caps at ~2 GiB): `FLOCI_STORAGE_SERVICES_S3_MODE=persistent`.
-- Keep Floci's persisted state out of `data/` (Floci's default persistent path is `./data`; use a dedicated directory such as `floci-data/`).
+- **Shared contracts** in `src/shared/types.ts` are the API between preparation, workers, orchestration (the CDK `buildDefinition` ASL), and consolidation. Changing a field name requires updating the state machine definition and both handlers in the same change.
+- Use disk-backed S3 storage for the dataset (Floci `memory` mode caps at ~2 GiB): run Floci with `FLOCI_STORAGE_MODE=persistent` and keep persisted state out of `data/` (default path is `./data`; use `floci-data/`).
 - Respect local ceilings in experiments: 500 concurrent Lambda executions (Runtime API port range 12000–12499) and the per-region limit (default 1000, configurable). Warm up functions before timed runs — local cold starts (≈1.3–17 s) dwarf warm invocations (3–4 ms).
 - New conventions (linting, formatting, testing) must be introduced deliberately and documented in this file when adopted.
 
 ## Validation expectations
 
-- No test or CI setup exists yet. Validate changes by running the commands that actually exist; state clearly when a workflow is not yet configured.
-- Changes to processing logic must be verified for correctness (correct aggregates, complete coverage of all records) — not just "it runs".
+- **`npm test` (vitest) and `npm run build` (`tsc --noEmit`-equivalent typecheck) must pass** for every change.
+- Validate behavior against the local emulator before claiming something works: `npm run deploy:local`, then a pipeline run via `npm run experiment`. The sample smoke path uses `data/samples/example.csv` (10 rows).
+- Changes to processing logic must be verified for correctness (correct aggregates, complete coverage of all records) — not just "it runs". The pipeline itself verifies completeness per run (manifest units/rows accounting); check `verified=true` in run output.
 - Behavioral claims against the emulator must be verified against Floci's service documentation (`docs/architecture.md` lists known deviations).
 
 ## Architecture and shared contracts

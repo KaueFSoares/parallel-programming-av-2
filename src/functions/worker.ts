@@ -29,8 +29,8 @@ export async function handler(event: WorkerEvent): Promise<WorkerResult> {
     }),
   );
 
-  const decoder = new StringDecoder("utf8");
-  const counter = new LineCounter(FIELD_COUNT, { extract: DIMENSIONS });
+  const decoder = new StringDecoder("latin1");
+  const counter = new LineCounter(FIELD_COUNT, { extract: DIMENSIONS, singleByte: true });
   const body = res.Body as unknown as AsyncIterable<Uint8Array>;
   for await (const chunk of body) {
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);

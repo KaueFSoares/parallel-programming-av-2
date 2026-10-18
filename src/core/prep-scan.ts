@@ -16,8 +16,9 @@ export interface ScanUnit {
  * Units therefore start at line starts and contain whole records only; the last
  * unit is closed by `finish()` and may be shorter than the target.
  *
- * Byte offsets come from `LineCounter` with `trackOffsets`, which counts exact
- * UTF-8 bytes and fires `onLineStart` for every record boundary (including 0).
+ * Byte offsets come from `LineCounter` with `trackOffsets`; with `singleByte`
+ * (Latin-1 data) each code unit is exactly one byte, so offsets match file
+ * offsets exactly.
  */
 export class UnitScanner {
   /** S3 key of the raw file this scanner covers (units themselves are key-less). */
@@ -29,7 +30,7 @@ export class UnitScanner {
   private unitStart = 0;
   private unitStartRows = 0;
 
-  constructor(targetBytes: number, key: string) {
+  constructor(targetBytes: number, key: string, opts: { singleByte?: boolean } = {}) {
     if (!Number.isFinite(targetBytes) || targetBytes <= 0) {
       throw new Error(`targetBytes must be a positive finite number (got ${targetBytes})`);
     }
@@ -37,6 +38,7 @@ export class UnitScanner {
     this.key = key;
     this.counter = new LineCounter(FIELD_COUNT, {
       trackOffsets: true,
+      ...(opts.singleByte ? { singleByte: true } : {}),
       onLineStart: (offset) => this.handleLineStart(offset),
     });
   }

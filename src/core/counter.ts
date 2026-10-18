@@ -25,6 +25,12 @@ export interface CounterOptions {
   /** Track byte offsets; `onLineStart` receives the byte offset of each line start. */
   trackOffsets?: boolean;
   onLineStart?: (byteOffset: number) => void;
+  /**
+   * Treat every code unit as exactly one byte (single-byte encodings such as
+   * ISO-8859-1 / latin1). The RFB CSVs are Latin-1; this keeps byte offsets
+   * exact without UTF-8 length math.
+   */
+  singleByte?: boolean;
 }
 
 export class LineCounter {
@@ -38,6 +44,7 @@ export class LineCounter {
   private readonly expected: number;
   private readonly extractSet: Set<number>;
   private readonly track: boolean;
+  private readonly singleByte: boolean;
   private readonly onLineStart: ((byteOffset: number) => void) | undefined;
 
   private inQuotes = false;
@@ -54,6 +61,7 @@ export class LineCounter {
     this.extractSet = new Set(opts.extract ?? []);
     this.extracted = [];
     this.track = opts.trackOffsets ?? false;
+    this.singleByte = opts.singleByte ?? false;
     this.onLineStart = opts.onLineStart;
     if (this.track) this.onLineStart?.(0);
   }
@@ -84,7 +92,7 @@ export class LineCounter {
         const units = charUnits(s, i);
         if (this.capturing) this.fieldChars!.push(units === 2 ? s.slice(i, i + 2) : s.charAt(i));
         i += units;
-        if (track) this.bytes += charBytes(s, i - units);
+        if (track) this.bytes += this.singleByte ? units : charBytes(s, i - units);
         this.lineHasContent = true;
         continue;
       }
@@ -137,7 +145,7 @@ export class LineCounter {
       const units = charUnits(s, i);
       if (this.capturing) this.fieldChars!.push(units === 2 ? s.slice(i, i + 2) : s.charAt(i));
       i += units;
-      if (track) this.bytes += charBytes(s, i - units);
+      if (track) this.bytes += this.singleByte ? units : charBytes(s, i - units);
       this.lineHasContent = true;
     }
   }

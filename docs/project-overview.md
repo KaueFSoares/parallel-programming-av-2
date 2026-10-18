@@ -17,7 +17,8 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
   - <https://dados.gov.br/dados/conjuntos-dados/cadastro-nacional-da-pessoa-juridica---cnpj>
   - <https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9?dir=/2026-10>
 - **Local copies:** `~/Downloads/download/` contains the 10 `Estabelecimentos{0..9}.zip` archives (≈4.1 GB compressed total) and their decompressed files (~16.2 GB total). Verified: local file sizes match the official 2026-10 release listing exactly.
-- **Structure (verified on the 10-row sample only):** semicolon-delimited, every field double-quoted, **30 fields per row, no header row**, ASCII, LF line endings. Field sequence matches the known RFB Estabelecimentos layout: CNPJ base/order/DV, matriz-filial flag, nome fantasia, situação cadastral + date + motivo, cidade exterior, país, início de atividade, CNAE principal, CNAE secundária, endereço (tipo, logradouro, número, complemento, bairro), CEP, UF, município, DDD1/telefone1, DDD2/telefone2, DDD fax/fax, e-mail, situação especial + date.
+- **Structure (verified on the 10-row sample only):** semicolon-delimited, every field double-quoted, **30 fields per row, no header row**, LF line endings. Field sequence matches the known RFB Estabelecimentos layout: CNPJ base/order/DV, matriz-filial flag, nome fantasia, situação cadastral + date + motivo, cidade exterior, país, início de atividade, CNAE principal, CNAE secundária, endereço (tipo, logradouro, número, complemento, bairro), CEP, UF, município, DDD1/telefone1, DDD2/telefone2, DDD fax/fax, e-mail, situação especial + date.
+- **Encoding (verified by measurement):** the raw files are **ISO-8859-1 (Latin-1)**, not UTF-8 — high bytes decode to Portuguese accents and no valid UTF-8 sequences exist in sampled regions. The pipeline decodes raw CSVs as Latin-1 so byte offsets map 1:1 to file offsets; counted dimensions (UF, município, CNAE, situação, matriz/filial) are ASCII codes and are unaffected.
 - **Evidence limits:** 10 rows cannot prove the whole dataset is well-formed. Exceptional records (malformed quoting, unusual lengths, encodings) may exist. The official field-name document should be cross-checked during implementation (gov.br was unreachable during this exploration).
 - **Anomaly resolved (2026-10-18):** archive 0 contains 31,028,468 records while archives 1–9 hold ~4,753,435 each; total ≈ 73.8M records in 16.2 GB (measured by streaming line counts). The release is genuinely imbalanced by CNPJ range — not corruption. Partitioning and experiments must treat part 0 as ~6.5× the size of the others.
 - The release also ships Empresas/Socios/Simples/etc. tables; only Estabelecimentos was downloaded and is in scope.
@@ -75,9 +76,9 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 
 ## Expected deliverables
 
-- Source code with build and run instructions.
-- A short report (≈2–4 pages, **English**) presenting the experiment, methodology, collected evidence, and answers to the analysis questions.
-- Sufficient evidence and documentation for results to be reproduced and audited.
+- **Source code with build and run instructions — done:** TypeScript pipeline (prep/worker/consolidator/harness), AWS CDK stack, `README.md` with the full workflow; 36 unit tests.
+- A short report (≈2–4 pages, **English**) presenting the experiment, methodology, collected evidence, and answers to the analysis questions — pending the experiment run.
+- Sufficient evidence and documentation for results to be reproduced and audited — experiment records land in `data/results/` (JSON + markdown reports).
 
 ## Scope and non-goals
 

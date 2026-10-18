@@ -180,4 +180,23 @@ describe("LineCounter byte offsets", () => {
     c.flush();
     expect(c.bytes).toBe(Buffer.byteLength(text, "utf8"));
   });
+
+  it("singleByte mode treats latin1 text as one byte per code unit", () => {
+    // latin1 'ç' (0xE7) and 'ã' (0xE3) are single bytes in the file
+    const ç = String.fromCharCode(0xe7);
+    const ã = String.fromCharCode(0xe3);
+    const text = line({ 4: `mar${ç}o`, 11: "4712100" }) + line({ 4: `irm${ã}`, 11: "1" });
+    const starts: number[] = [];
+    const c = new LineCounter(FIELD_COUNT, {
+      trackOffsets: true,
+      singleByte: true,
+      extract: [4],
+      onLineStart: (o) => starts.push(o),
+    });
+    c.push(text);
+    c.flush();
+    expect(c.bytes).toBe(text.length); // latin1: chars == bytes
+    expect(starts[1]).toBe(text.indexOf("\n") + 1);
+    expect(c.extracted[4]).toEqual({ [`mar${ç}o`]: 1, [`irm${ã}`]: 1 });
+  });
 });
