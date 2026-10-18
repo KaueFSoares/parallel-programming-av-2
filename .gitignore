@@ -5,6 +5,7 @@ build/
 coverage/
 *.log
 *.tsbuildinfo
+cdk.out/
 
 # Dataset — never commit (see AGENTS.md)
 data/
