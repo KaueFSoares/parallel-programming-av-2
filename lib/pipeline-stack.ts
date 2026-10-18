@@ -111,6 +111,16 @@ export class PipelineStack extends cdk.Stack {
         resources: [workerFn.functionArn, consolidatorFn.functionArn],
       }),
     );
+    // Distributed Map ItemReader reads the manifest from S3.
+    bucket.grantRead(execRole, "manifests/*");
+    // Distributed Map child executions: the state machine role must be able to
+    // start, describe, and stop its own executions (required on real AWS).
+    execRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["states:StartExecution", "states:DescribeExecution", "states:StopExecution"],
+        resources: ["*"],
+      }),
+    );
 
     const stateMachine = new sfn.StateMachine(this, "Pipeline", {
       stateMachineName: "cnpj-pipeline",

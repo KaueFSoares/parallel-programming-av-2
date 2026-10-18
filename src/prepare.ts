@@ -49,7 +49,6 @@ interface ScannedFile {
 
 interface ComposeResult {
   mb: number;
-  path: string;
   units: number;
 }
 
@@ -320,7 +319,7 @@ async function main(): Promise<void> {
     const path = join(opts.outDir, `units-${mbLabel(mb)}mb.json`);
     await writeJson(path, units);
     written.push(path);
-    composed.push({ mb, path, units: units.length });
+    composed.push({ mb, units: units.length });
   }
 
   await syncToS3(opts, scanned, written);

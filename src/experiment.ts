@@ -19,7 +19,7 @@ import {
   SFNClient,
   StartExecutionCommand,
 } from "@aws-sdk/client-sfn";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
   ConsolidateResult,
@@ -103,9 +103,11 @@ async function runPipeline(
   const last = events[events.length - 1]?.timestamp?.getTime() ?? Date.now();
   const mapStart = ts("MapRunStarted");
   const mapEnd = ts("MapRunSucceeded");
-  // consolidator task is the last TaskScheduled/TaskSucceeded pair
-  const taskScheduled = events.filter((e) => e.type === "TaskScheduled").pop()?.timestamp?.getTime();
-  const taskSucceeded = events.filter((e) => e.type === "TaskSucceeded").pop()?.timestamp?.getTime();
+  // consolidator is a direct Lambda ARN task: LambdaFunction* events (Distributed
+  // Map children publish into their own executions, so the parent's only
+  // LambdaFunction* events belong to the consolidator).
+  const consScheduled = events.filter((e) => e.type === "LambdaFunctionScheduled").pop()?.timestamp?.getTime();
+  const consSucceeded = events.filter((e) => e.type === "LambdaFunctionSucceeded").pop()?.timestamp?.getTime();
 
   let result: ConsolidateResult | undefined;
   if (output) {
@@ -124,7 +126,7 @@ async function runPipeline(
       totalMs: last - first,
       fanOutMs: mapStart !== undefined && mapEnd !== undefined ? mapEnd - mapStart : -1,
       consolidateMs:
-        taskScheduled !== undefined && taskSucceeded !== undefined ? taskSucceeded - taskScheduled : -1,
+        consScheduled !== undefined && consSucceeded !== undefined ? consSucceeded - consScheduled : -1,
       result,
       error,
     },
@@ -190,6 +192,7 @@ async function main(): Promise<void> {
     }
   }
 
+  mkdirSync(dirname(args.out), { recursive: true });
   writeFileSync(args.out, JSON.stringify(records, null, 2));
   console.log(`results written to ${args.out}`);
 }
