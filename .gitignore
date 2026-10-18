@@ -1,0 +1,21 @@
+# Node.js
+node_modules/
+dist/
+build/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Dataset — never commit (see AGENTS.md)
+data/
+
+# Local emulator state (kept out of data/ on purpose)
+floci-data/
+.floci/
+
+# Environment files
+.env
+.env.*
+
+# OS/editor
+.DS_Store
