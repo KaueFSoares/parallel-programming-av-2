@@ -19,13 +19,13 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 - **Local copies:** `~/Downloads/download/` contains the 10 `Estabelecimentos{0..9}.zip` archives (≈4.1 GB compressed total) and their decompressed files (~16.2 GB total). Verified: local file sizes match the official 2026-10 release listing exactly.
 - **Structure (verified on the 10-row sample only):** semicolon-delimited, every field double-quoted, **30 fields per row, no header row**, ASCII, LF line endings. Field sequence matches the known RFB Estabelecimentos layout: CNPJ base/order/DV, matriz-filial flag, nome fantasia, situação cadastral + date + motivo, cidade exterior, país, início de atividade, CNAE principal, CNAE secundária, endereço (tipo, logradouro, número, complemento, bairro), CEP, UF, município, DDD1/telefone1, DDD2/telefone2, DDD fax/fax, e-mail, situação especial + date.
 - **Evidence limits:** 10 rows cannot prove the whole dataset is well-formed. Exceptional records (malformed quoting, unusual lengths, encodings) may exist. The official field-name document should be cross-checked during implementation (gov.br was unreachable during this exploration).
-- **Anomaly:** archive 0 decompresses to 7.26 GB while the others are ~1.1 GB each; the cause has not been investigated.
+- **Anomaly resolved (2026-10-18):** archive 0 contains 31,028,468 records while archives 1–9 hold ~4,753,435 each; total ≈ 73.8M records in 16.2 GB (measured by streaming line counts). The release is genuinely imbalanced by CNPJ range — not corruption. Partitioning and experiments must treat part 0 as ~6.5× the size of the others.
 - The release also ships Empresas/Socios/Simples/etc. tables; only Estabelecimentos was downloaded and is in scope.
 
 ## Expected processing outcomes
 
-- **Confirmed direction:** aggregate dimension counts/statistics over establishment records (examples: counts by UF, municipality, CNAE, situação cadastral, matriz/filial). Classic map-reduce shaped workload.
-- **Open:** the exact dimension set, output format, and any derived statistics (e.g., distributions) still need final confirmation.
+- **Decided (owner delegated the choice):** a single-pass aggregation producing one JSON document at the end of the pipeline. Every input line is read exactly once; the pipeline counts records by dimension — counts by UF, municipality, CNAE principal, situação cadastral, and matriz/filial flag, plus total and malformed-record counts. All dimensions are positional columns on every row, so no joins or lookups are needed. The exact JSON shape is an implementation detail; the workload is a pure map-reduce over all 73.8M rows.
+- **Accuracy note (explicit owner statement):** aggregation accuracy is not the objective — the project measures concurrency gains. Malformed lines are counted and skipped (see `docs/architecture.md`).
 
 ## Functional requirements
 
@@ -49,7 +49,7 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 ## Development and execution environments
 
 - **Language/runtime:** TypeScript on Node.js **24.22.0** (pinned via `.nvmrc`; installed via NVM, currently not the active default — 26.9.0 is active and must not be changed during setup).
-- **Local AWS emulation:** Floci (MIT, free, Docker-based, 126 AWS services on `:4566`) — the only emulator in scope (user decision; LocalStack excluded). Not installed yet — installation is a planned project task.
+- **Local AWS emulation:** Floci (MIT, free, Docker-based, 126 AWS services on `:4566`) — the only emulator in scope (user decision; LocalStack excluded). **Installed and validated 2026-10-18:** floci-cli 0.4.0 (user-level at `~/.local/bin`), emulator image `floci/floci:latest`; project config should pin a fixed release (2.3.0, 2026-10-15). Start with `floci start`, configure via `eval "$(floci env)"`, stop with `floci stop`. Hands-on probes validated S3, Step Functions Distributed Map (CSV `ItemReader` and manifest-driven), Lambda (`nodejs24.x` runtime), CloudFormation, and AWS CDK via `cdklocal` — details in `docs/architecture.md`.
 - **Real AWS:** an account exists; credentials setup is a future task. AWS CLI is not currently installed.
 - **Infrastructure as code:** AWS CDK is preferred where it serves the objectives, but not yet mandated; validate against emulator capabilities before committing.
 - **Machine:** 12 cores, 30 GB RAM, Docker 29.9.0 with daemon running.
@@ -67,10 +67,11 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 - **Independent variables:** concurrency level; input size (both confirmed). Exact level sets to be defined in the methodology.
 - **Dependent variables:** execution time, throughput (e.g., records/s), derived speedup `S(p) = T(1)/T(p)` and efficiency `S(p)/p`.
 - **Controlled parameters:** identical code, data subset, worker configuration, and measurement procedure across runs.
-- **Repetition:** repeated measurements per configuration (assignment requirement), e.g., median or mean of N runs.
+- **Repetition:** repeated measurements per configuration (assignment requirement), e.g., median or mean of N runs; warm-up runs before timed measurements (local Lambda cold starts ≈ 1.3–17 s vs 3–4 ms warm — regimes must be separated).
 - **Saturation analysis:** locate the point where added parallelism yields no improvement or degrades performance; qualitatively explain bottlenecks (cold starts, I/O, orchestration overhead, emulator or AWS limits).
 - **Scale:** controlled subsets for repeated experiments; one full end-to-end run over all 10 archives.
 - **Comparison:** local (Floci) vs real AWS execution, explicitly framed as non-equivalent timing environments.
+- **Proposed level sets (explored against the 12-core host and emulator limits):** concurrency in {1, 2, 4, 8, 12, 16, 24, 32, 64}; input sizes as partition counts/sizes (e.g., ~50 MB, 100 MB, 500 MB, 1 GB, 4 GB, full dataset). Final sets to be fixed in the methodology; local ceilings to respect: 500 concurrent Lambda executions (Runtime API port range), region limit 1000 (configurable).
 
 ## Expected deliverables
 
@@ -81,17 +82,17 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 ## Scope and non-goals
 
 - **Out of scope:** business application features; joins with Empresas/Socios and other CNPJ tables; SQS-based fan-out; a local non-AWS baseline implementation; AWS cost metrics; LocalStack (Floci is the only emulator).
-- **Deferred (not blockers for documentation):** installing Floci, AWS CLI, credentials setup, and copying the dataset into `data/` — all planned as setup tasks.
+- **Deferred (not blockers for documentation):** AWS CLI and credentials setup, and copying the dataset into `data/` — planned as setup tasks. (Floci is already installed and validated.)
 
 ## Assumptions and unresolved items
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Exact aggregation dimensions and output format | Open — final confirmation needed |
-| 2 | Official RFB field-name layout document | To cross-check during implementation |
-| 3 | Full dataset is well-formed | Unverified — 10-row sample only; malformed-record policy needed |
-| 4 | Estabelecimentos0 decompressed size (7.26 GB) anomaly | Unexplained — inspect during preparation |
-| 5 | Experiment level sets (concurrency values, input sizes, run counts) | Open — methodology to be established |
+| 1 | Aggregation dimensions and output shape | Decided by delegation (single-pass counts, one JSON); owner may still adjust |
+| 2 | Official RFB field-name layout document | Minor — positional schema used; cross-check optional |
+| 3 | Full dataset is well-formed | Policy applied: malformed lines counted and skipped (accuracy not the goal) |
+| 4 | Estabelecimentos0 size imbalance | Resolved — real release imbalance (31.0M vs ~4.75M records/part) |
+| 5 | Experiment level sets (concurrency values, input sizes, run counts) | Proposed defaults documented; finalize in methodology |
 | 6 | AWS credentials setup timing and full-run budget | Open — account exists, setup later |
-| 7 | Whether AWS CDK is mandatory or an alternative IaC is acceptable | Open — trade-offs documented in `docs/architecture.md` |
+| 7 | AWS CDK viability on the emulator | Resolved — validated end-to-end via cdklocal (bootstrap + deploy) |
 | 8 | Assignment's specific analysis questions for the report | Not provided — report structure follows the goals above |

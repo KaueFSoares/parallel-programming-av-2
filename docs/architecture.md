@@ -44,37 +44,47 @@ flowchart LR
 
 - **Streaming is mandatory** (30 GB RAM vs ~16 GB dataset): both preparation and workers must read bounded windows of data, never whole files. [Confirmed]
 - **CSV structure implications** [Confirmed from sample]: semicolon delimiter, all fields quoted, quoted fields may contain delimiters (and potentially line breaks in the full data), **no header row**. Any partitioner must therefore split on record boundaries (newline inside unclosed quote handling), not on raw line counts. Splitting by byte ranges requires resynchronization at the next valid record boundary.
-- **Partition sizing** [Open]: units should be sized for Lambda constraints (invocation duration, payload limits) and for good load balance; size range to be determined experimentally (ties into the input-size independent variable).
-- **Anomaly**: archive 0 decompresses to 7.26 GB vs ~1.1 GB for the others. [Open] — investigate before finalizing partitioning.
+- **Measured dataset shape** [Confirmed — streaming line counts, 2026-10-18]: part 0 = 31,028,468 records (7.26 GB); parts 1–9 ≈ 4,753,435 records (~1.1 GB) each; total ≈ 73.8M records / 16.2 GB. The release is imbalanced by CNPJ range — partitioning and experiment design must account for part 0 being ~6.5× larger.
+- **Partition sizing** [Proposed]: units sized for Lambda constraints and load balance; exact size range determined experimentally (doubles as the input-size independent variable). First candidate sizes: 50 MB, 100 MB, 500 MB, 1 GB, 4 GB.
 
 ## Parallel execution
 
-- **Configurable concurrency** [Confirmed] is the core independent variable. Candidate knobs, to be validated against Floci:
-  - Step Functions Map `MaxConcurrency` (inline Map ceiling 40, Distributed Map ceiling 10,000 per AWS; Floci implements both).
+- **Configurable concurrency** [Confirmed] is the core independent variable. Candidate knobs, all validated hands-on on Floci (2026-10-18):
+  - Step Functions Map `MaxConcurrency` (inline and Distributed) — validated; note AWS ceilings (inline 40, Distributed 10,000) and Floci's identical handling.
   - Lambda reserved concurrency and Floci's per-region concurrent-execution limit (default 1000, configurable).
-  - Distributed Map `ItemBatcher` (batch size / bytes per child execution).
-- **Distributed Map over S3** [Proposed]: Floci's Map `ItemReader` reads CSV directly from S3 with `SEMICOLON` delimiter and quoted-field support — a natural fit, but its exact semantic match to this dataset (no header row, `CSVHeaders: GIVEN` requirement, MaxItems ceiling of 100,000,000) must be validated. Alternative: explicit per-partition task fan-out driven by the manifest.
+  - Distributed Map `ItemBatcher` (`MaxItemsPerBatch`, `MaxInputBytesPerBatch`) — validated; batched Lambda children receive `{Items: [...], BatchInput}` and must aggregate the batch internally.
+- **Fan-out mechanism — recommendation after hands-on validation** [Proposed, awaiting owner confirmation]:
+  - **Primary: manifest-driven partitioning.** Preparation streams each CSV, splits it into partition files of configurable size (resynchronizing at record boundaries), and writes a manifest (one JSON item per partition with bucket/key/byte range/record count). A Distributed Map iterates the manifest (`ItemsPath: "$.units"`) with Lambda child tasks; each worker streams its partition from S3, parses, and counts. *Validated on Floci end-to-end (10-item manifest, concurrency 1 and 5, inline and Distributed).* Rationale: explicit control of unit size (the input-size independent variable), auditable completeness, parsing happens in workers (the measured unit), fewer orchestration items than row-level fan-out.
+  - **Validated alternative: Distributed Map CSV `ItemReader`** — Floci reads a headerless CSV from S3 with `CSVHeaderLocation: GIVEN` + `CSVHeaders` (30 positional names) + `CSVDelimiter: SEMICOLON`, one item per row, batching via `ItemBatcher`; *validated on the real sample (10 rows → 10 items; batches of 3/3/3/1 with `MaxItemsPerBatch: 3`).* Downsides for this project: parsing happens in the SFN engine rather than the measured workers, unit size control is indirect (byte-based batching), ~73.8M items flow through orchestration, and completeness verification is weaker. Kept as fallback.
+  - JSONPath note (learned the hard way): a JSONPath Map takes items from input via `ItemsPath`, not a literal `Items` field — Floci enforces AWS schema validation.
 - **Saturation study** [Confirmed goal]: sweep concurrency from 1 upward (and vary input size) until wall time stops improving or degrades; measure per-run overhead sources (cold starts, container scheduling, I/O contention, orchestration latency).
 
 ## Result consolidation and completeness
 
-- Workers are pure functions of their input unit; partial results are written to S3 and consolidated by a final stage. [Proposed]
-- **Completeness verification** [Confirmed requirement]: every unit in the manifest must have a corresponding, checksummed partial result; aggregate output must account for all input records (tolerance for malformed rows must be defined — [Open]).
-- **Failure handling**: Step Functions `Retry`/`Catch` with task tokens or per-unit retries; Lambda async-invocation retries/DLQ exist in Floci; idempotency of consolidation (re-runs must not double-count). [Proposed]
-- Malformed-record policy (skip-and-count vs fail-the-unit) is [Open] pending inspection of the full dataset.
+- Workers are pure functions of their input partition; partial results (per-partition counts + rows read + rows malformed) are written to S3 and consolidated by a final stage. [Proposed]
+- **Completeness verification** [Confirmed requirement]: every unit in the manifest must have a corresponding partial result; accounting invariant: `lines_read == lines_parsed + lines_malformed` per partition and across the run. **Malformed-record policy (owner delegated, decided):** a quote-aware streaming parser counts and skips lines whose field count differs from 30; skipped lines are reported per partition but do not fail the run. Accuracy is explicitly not the project goal — the measured quantity is processing throughput.
+- **Failure handling**: Step Functions `Retry`/`Catch` per unit; Lambda async-invocation retries/DLQ exist in Floci; consolidation must be idempotent (re-runs must not double-count). [Proposed]
 
 ## Local emulation (Floci) vs real AWS
 
-**Floci is the only supported emulator** [Confirmed — user decision; LocalStack excluded]. Verified facts about Floci (from its documentation, Sept–Oct 2026):
+**Floci is the only supported emulator** [Confirmed — user decision; LocalStack excluded]. Two evidence sources: vendor documentation (Sept–Oct 2026) and hands-on probes on this machine (2026-10-18, floci-cli 0.4.0, `floci/floci:latest`; project should pin release 2.3.0 of 2026-10-15).
 
-- MIT-licensed, Docker-based, 126 services on `:4566`; works with AWS SDK v3 via `AWS_ENDPOINT_URL`; compatibility-tested against SDKs, CLI, and CDK.
-- **Lambda** runs function code in real Docker containers using AWS runtime images (execution model close to AWS): warm pools, reserved concurrency, async retries/destinations/DLQ, event source mappings. Not implemented: provisioned concurrency, `InvokeWithResponseStream`, layer permissions. Defaults: 128 MB memory, 3 s timeout, per-region concurrency limit 1000 (all configurable).
-- **S3** and **Step Functions** are emulated in-process (not the real engines). Documented Step Functions deviations include: `Wait` capped at 30 s locally, `ActivityStarted` emitted at schedule time, closed execution names never released, Express execution history retained indefinitely (unbounded store growth in tight loops).
-- Storage modes (`memory`/`persistent`/`hybrid`/`wal`) control durability across restarts; persisted state default path `./data` must be redirected (e.g., `floci-data/`) to avoid colliding with the dataset directory.
-- **Fidelity limits to respect** [Confirmed expectations]:
-  - Emulator timings ≠ AWS timings (startup, cold starts, network, orchestration latency). Local and AWS runs are separate measurement regimes; local results are for development and behavior validation, not for absolute performance claims.
-  - Service-side quotas differ (Floci's configurable per-region limit vs AWS account quotas). Concurrency sweeps must record which limit governed each run.
-  - Any Step Functions feature used must be checked against Floci's documented deviations before relying on it in experiments.
+**Hands-on verified (this machine):**
+- S3 create/put/head/list: single-digit ms; path-style endpoint works with SDK v3.
+- Step Functions: Distributed Map with CSV `ItemReader` (`CSVHeaderLocation: GIVEN` + 30 `CSVHeaders` + `CSVDelimiter: SEMICOLON`) parsed the real sample correctly (10 rows → 10 items); `ItemBatcher` grouped 3/3/3/1; manifest-driven Distributed and inline Maps with Lambda children both succeeded (10 child executions, concurrency 1 and 5); AWS-parity schema validation rejects a literal `Items` field in JSONPath Maps (`ItemsPath` required).
+- Lambda: `nodejs24.x` runtime works (matches the pinned Node 24); cold start ≈ 17 s on first image pull, ≈ 1.3 s for additional container spins, 3–4 ms warm; 48 concurrent invokes succeeded with sublinear total time.
+- CloudFormation: stack with bucket + IAM role + Lambda + SFN state machine reached `CREATE_COMPLETE` in ~36 ms and deleted cleanly.
+- **AWS CDK: fully working locally** via `cdklocal` (aws-cdk-local v3): `cdklocal synth` → `cdklocal bootstrap --force` (bootstrap IS required) → `cdklocal deploy --require-approval never` deployed a CDK app (S3 bucket, Lambda with real code asset, SFN state machine) in 5.84 s; the deployed function invoked successfully. Requires `AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566` for asset publishing. **Decision: AWS CDK is confirmed as the IaC tool.**
+
+**Documented limits that shape the experiment (from Floci docs):**
+- Lambda Runtime API port range 12000–12499 → **hard cap of 500 concurrent executions** locally; per-region concurrency limit default 1000 (configurable via `FLOCI_SERVICES_LAMBDA_REGION_CONCURRENCY_LIMIT`); warm pool `max(4, cpus)` = 12 here.
+- S3 `memory` storage mode has a ~2 GiB cap → **use disk-backed persistent S3 storage** (`FLOCI_STORAGE_SERVICES_S3_MODE=persistent`) for the 16 GB dataset; multipart upload supported.
+- Step Functions `Wait`/`Retry` pauses capped at 30 s locally (`max-wait-seconds`); provisioned concurrency unimplemented; large-function cold-start populates can serialize (tunable via `FLOCI_SERVICES_LAMBDA_CODE_VOLUME_POPULATE_CONCURRENCY`).
+- `floci-cli` supports `profiles` and `snapshot save/load` for reproducible experiment instances.
+
+**Fidelity limits to respect** [Confirmed expectations]:
+- Emulator timings ≠ AWS timings (startup, cold starts, network, orchestration latency). Local and AWS runs are separate measurement regimes; local results are for development, correctness, and *relative* concurrency scaling, not absolute performance claims.
+- Service-side quotas differ (500/1000 local caps vs AWS account quotas). Concurrency sweeps must record which limit governed each run, and methodology must warm up functions before timed runs (cold-start regime measured separately).
 
 **Coupling rule** [Confirmed]: application code uses AWS SDK v3 + standard endpoint configuration only; Floci-specific configuration is confined to the operational/experiment layer. Pin the Floci image to a fixed version tag for reproducibility.
 
@@ -98,21 +108,19 @@ flowchart LR
 
 | Risk | Notes |
 |---|---|
-| Emulator fidelity | S3/SFN in-process engines; timing artifacts; quota differences. Mitigation: validate feature set against Floci docs; keep measurements emulator-aware. |
+| Emulator fidelity | S3/SFN in-process engines; timing artifacts; quota differences. Mitigation: validated feature set (2026-10-18 probes); measurements emulator-aware; warm-up before timed runs. |
 | Dataset scale on one machine | 16 GB data on 282 GB disk is fine; 30 GB RAM forces streaming. Full local runs may take long; subsets are the experiment workhorse. |
-| Unknown malformed records | Sample proves nothing about the full data; need a validation pass and an explicit malformed-record policy before finalizing correctness claims. |
-| Step Functions Map limits | AWS inline/Distributed concurrency ceilings and Floci's implementation details must be checked before choosing the fan-out mechanism. |
+| Malformed records | Policy decided: counted and skipped (accuracy not the goal); quote-aware parser must still be correct about row boundaries or counts become meaningless. |
+| Fan-out choice | Manifest-driven partitioning recommended and validated; CSV `ItemReader` kept as validated fallback — final confirmation needed from the owner. |
 | AWS cost/time of full run | One full run on AWS is planned; budget and time must be validated with the owner before execution. |
 | Consolidation bottleneck | Final merge is serial by nature; must be instrumented so it doesn't silently dominate results. |
+| Local concurrency ceilings | 500-execution Runtime API cap and 1000 region limit bound the sweep; document the binding limit per run. |
 | Alternatives considered and not selected | SQS fan-out, local non-AWS Node baseline, LocalStack. [Confirmed] |
 
 ## Open architectural questions
 
-1. Exact aggregation dimensions and output format (also listed in `docs/project-overview.md`).
-2. Fan-out mechanism: Step Functions Distributed Map `ItemReader` (S3 CSV) vs manifest-driven per-partition tasks — needs validation against Floci and AWS semantics.
-3. Partitioning strategy and unit sizes (byte-range + resync vs record-count splits).
-4. Malformed-record handling policy.
-5. Experiment parameter sets: concurrency levels, input sizes, repetition counts.
-6. Whether AWS CDK is used or an alternative IaC approach is preferred after Floci compatibility validation.
-7. Estabelecimentos0 size anomaly — inspect during preparation.
-8. Official RFB field-name layout cross-check (gov.br unreachable during initial exploration).
+1. Fan-out mechanism confirmation: manifest-driven partitioning (recommended) vs Distributed Map CSV `ItemReader` (validated fallback).
+2. Final experiment parameter sets (concurrency levels, partition sizes, repetition counts) — defaults proposed, to be fixed in the methodology.
+3. Partitioning implementation details: byte-range resync vs record-count splits; part 0's size imbalance handling.
+4. AWS credentials setup timing and full-run budget (account exists).
+5. Aggregation output JSON shape (dimensions decided; format is an implementation detail).

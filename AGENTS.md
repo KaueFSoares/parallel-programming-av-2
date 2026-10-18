@@ -15,7 +15,8 @@ These files are the shared source of truth. If they contradict each other or the
 
 - **Node.js 24.22.0** via NVM, pinned in `.nvmrc`. Do not switch versions or modify the runtime setup as a side effect of other work.
 - **TypeScript** is the implementation language. No package manager, build tooling, linter, or test runner has been established yet — do not invent or present unconfigured commands as if they exist.
-- **Docker** is required for local AWS emulation. The chosen emulator is **Floci** — the *only* supported emulator (LocalStack is explicitly out of scope). Floci is not installed yet; installation/setup is a planned project task — do not install it ad hoc as part of unrelated work.
+- **Docker** is required for local AWS emulation. The chosen emulator is **Floci** — the *only* supported emulator (LocalStack is explicitly out of scope). Floci is installed and validated (floci-cli 0.4.0 at `~/.local/bin`): start with `floci start`, configure with `eval "$(floci env)"`, stop with `floci stop`. Pin the image to a fixed release (2.3.0) in project configuration — never `latest`.
+- **AWS CDK is the confirmed IaC tool.** The validated local workflow is `cdklocal` (aws-cdk-local v3): `cdklocal synth`, `cdklocal bootstrap --force`, `cdklocal deploy --require-approval never`, with `AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566` set for asset publishing.
 
 ## Dataset and privacy rules (mandatory)
 
@@ -28,8 +29,9 @@ These files are the shared source of truth. If they contradict each other or the
 Not yet established (no `package.json` exists). Until they exist, follow these standing rules:
 
 - **Emulator-agnostic code.** Use AWS SDK v3 and the standard `AWS_ENDPOINT_URL` mechanism. Never call emulator-specific APIs, endpoints, or environment variables in application code; configuration may reference Floci only at the operational layer.
-- Pin the Floci Docker image to a fixed version tag (not `latest`) for reproducible experiments.
+- Use disk-backed S3 storage for the dataset (Floci `memory` mode caps at ~2 GiB): `FLOCI_STORAGE_SERVICES_S3_MODE=persistent`.
 - Keep Floci's persisted state out of `data/` (Floci's default persistent path is `./data`; use a dedicated directory such as `floci-data/`).
+- Respect local ceilings in experiments: 500 concurrent Lambda executions (Runtime API port range 12000–12499) and the per-region limit (default 1000, configurable). Warm up functions before timed runs — local cold starts (≈1.3–17 s) dwarf warm invocations (3–4 ms).
 - New conventions (linting, formatting, testing) must be introduced deliberately and documented in this file when adopted.
 
 ## Validation expectations
