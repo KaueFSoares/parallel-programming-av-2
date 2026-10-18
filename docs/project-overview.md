@@ -76,9 +76,9 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 
 ## Expected deliverables
 
-- **Source code with build and run instructions — done:** TypeScript pipeline (prep/worker/consolidator/harness), AWS CDK stack, `README.md` with the full workflow; 36 unit tests.
-- A short report (≈2–4 pages, **English**) presenting the experiment, methodology, collected evidence, and answers to the analysis questions — pending the experiment run.
-- Sufficient evidence and documentation for results to be reproduced and audited — experiment records land in `data/results/` (JSON + markdown reports).
+- **Source code with build and run instructions — done:** TypeScript pipeline (prep/worker/consolidator/harness), AWS CDK stack, `README.md` with the full workflow; 37 unit tests.
+- **Experiment report — done:** `docs/experiment-report.md` (2–4 pages, English) with methodology, full result tables, speedup/efficiency analysis, and conclusions from the real-data sweep (62 measured runs, all completeness-verified).
+- **Evidence for reproduction/audit:** run records in `data/results/exp-{64,256,1024}mb.json` + `combined.md`.
 
 ## Scope and non-goals
 
@@ -93,7 +93,7 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 | 2 | Official RFB field-name layout document | Minor — positional schema used; cross-check optional |
 | 3 | Full dataset is well-formed | Policy applied: malformed lines counted and skipped (accuracy not the goal) |
 | 4 | Estabelecimentos0 size imbalance | Resolved — real release imbalance (31.0M vs ~4.75M records/part) |
-| 5 | Experiment level sets (concurrency values, input sizes, run counts) | Proposed defaults documented; finalize in methodology |
-| 6 | AWS credentials setup timing and full-run budget | Open — account exists, setup later |
+| 5 | Experiment level sets (concurrency values, input sizes, run counts) | Executed: {1..32} × {64,256,1024} MiB, warm-up + 2–3 reps; see `docs/experiment-report.md` |
+| 6 | AWS credentials setup timing and full-run budget | Open — account exists, setup later (stack IAM is real-AWS-ready) |
 | 7 | AWS CDK viability on the emulator | Resolved — validated end-to-end via cdklocal (bootstrap + deploy) |
-| 8 | Assignment's specific analysis questions for the report | Not provided — report structure follows the goals above |
+| 8 | Assignment's specific analysis questions for the report | Not provided — report answers the goals above |

@@ -95,11 +95,10 @@ flowchart LR
 
 ## Performance measurement approach
 
-- Baseline `T(1)` with concurrency 1; then increasing concurrency levels (set to be defined) and, separately, increasing input sizes.
-- Per configuration: N repeated runs (assignment requires repetition; count to be defined), reporting mean/median wall time and throughput.
-- Derived metrics: speedup `S(p) = T(1)/T(p)`, parallel efficiency `S(p)/p`.
-- Saturation: identify the knee/ceiling, and attribute it (I/O, CPU contention, emulator orchestration, Lambda scheduling, consolidation serialization).
-- Local experiments use controlled subsets (one or a few archives); one full 10-archive end-to-end run validates scale and completeness. [Confirmed]
+- **Executed (2026-10-18):** full-dataset sweeps at concurrency {1,2,4,8,12,16,24,32} × unit sizes {64,256,1024} MiB, warm-up + 2–3 reps; timings from Step Functions execution history; completeness verified on every run. Full results and analysis: `docs/experiment-report.md`.
+- Baseline `T(1)` with concurrency 1; increasing concurrency levels; derived speedup `S(p) = T(1)/T(p)`, efficiency `S(p)/p`.
+- **Observed:** near-linear to p=2 (eff. 0.97), saturation at p≈8–12 (peak speedup ≈4.2×, ~2.4–2.5 M rows/s), degradation beyond (3.74× at p=32). Ceiling attributed to CPU saturation + the single in-process emulated S3 service; unit size had negligible effect (floor ≈29.5–31 s at high p).
+- Local experiments use the full 10-archive dataset (73,809,379 records) for every configuration.
 
 ## Technical risks and alternatives
 
@@ -116,5 +115,4 @@ flowchart LR
 
 ## Open architectural questions
 
-1. Final experiment parameter sets (concurrency levels, partition sizes, repetition counts) — defaults proposed; the harness (`src/experiment.ts`) implements them, pending the real-data sweep.
-2. AWS credentials setup timing and full-run budget (account exists; stack IAM is already real-AWS-ready).
+1. Real AWS execution: credentials setup and the local/AWS comparison run (the local experiment is complete; the emulator caveats in `docs/experiment-report.md` apply).

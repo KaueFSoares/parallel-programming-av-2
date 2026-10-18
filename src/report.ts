@@ -1,8 +1,9 @@
 /**
- * Report generator: turns a run-record JSON (from experiment.ts) into summary
+ * Report generator: turns run-record JSON files (from experiment.ts) into summary
  * statistics (speedup, efficiency, throughput) and a markdown report.
  *
- * Usage: npx tsx src/report.ts data/results/exp-<id>.json [out.md]
+ * Usage: npx tsx src/report.ts <results.json> [more.json ...] [--out out.md]
+ * Speedup/efficiency are computed against the concurrency-1 baseline of the same input size.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { RunRecord } from "./shared/types.js";
@@ -55,16 +56,18 @@ function analyze(records: RunRecord[]): Agg[] {
     const base = aggs.find((a) => a.unitsMb === agg.unitsMb && a.maxConcurrency === 1);
     agg.speedup = base && base.meanMs > 0 ? base.meanMs / agg.meanMs : 0;
     agg.efficiency = agg.maxConcurrency > 0 ? agg.speedup / agg.maxConcurrency : 0;
-    agg.throughputRowsps = agg.meanMs > 0 ? (agg.rows / (agg.meanMs / 1000)) : 0;
+    agg.throughputRowsps = agg.meanMs > 0 ? agg.rows / (agg.meanMs / 1000) : 0;
   }
   return aggs.sort((a, b) => a.unitsMb - b.unitsMb || a.maxConcurrency - b.maxConcurrency);
 }
 
-function toMarkdown(aggs: Agg[]): string {
+function toMarkdown(aggs: Agg[], sources: string[]): string {
   const lines: string[] = [];
   lines.push("# Pipeline experiment report");
   lines.push("");
   lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push(`Sources: ${sources.join(", ")}`);
   lines.push("");
   lines.push(
     "| unitsMb | concurrency | runs | mean(ms) | min(ms) | max(ms) | rows | throughput (rows/s) | speedup | efficiency | verified |",
@@ -83,15 +86,18 @@ function toMarkdown(aggs: Agg[]): string {
 }
 
 function main(): void {
-  const inFile = process.argv[2];
-  if (!inFile) throw new Error("usage: report.ts <results.json> [out.md]");
-  const records = JSON.parse(readFileSync(inFile, "utf8")) as RunRecord[];
+  const args = process.argv.slice(2);
+  const outIdx = args.indexOf("--out");
+  const outFile = outIdx >= 0 ? args[outIdx + 1]! : undefined;
+  const files = outIdx >= 0 ? args.slice(0, outIdx) : args;
+  if (files.length === 0) throw new Error("usage: report.ts <results.json> [more.json ...] [--out out.md]");
+  const records = files.flatMap((f) => JSON.parse(readFileSync(f, "utf8")) as RunRecord[]);
   const aggs = analyze(records);
-  const md = toMarkdown(aggs);
-  const outFile = process.argv[3] ?? inFile.replace(/\.json$/, ".md");
-  writeFileSync(outFile, md);
+  const md = toMarkdown(aggs, files);
+  const target = outFile ?? (files.length === 1 ? files[0]!.replace(/\.json$/, ".md") : "data/results/combined.md");
+  writeFileSync(target, md);
   console.log(md);
-  console.log(`\nreport written to ${outFile}`);
+  console.log(`\nreport written to ${target}`);
 }
 
 main();

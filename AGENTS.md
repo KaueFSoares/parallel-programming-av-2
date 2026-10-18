@@ -8,6 +8,7 @@ Before making changes, read, in this order:
 
 1. `docs/project-overview.md` — purpose, requirements, dataset, environment, experiment goals, scope and non-goals.
 2. `docs/architecture.md` — architectural understanding, including the **Confirmed / Proposed / Open** status of every design element.
+3. `docs/experiment-report.md` — the executed experiment, its results, and conclusions (read before touching the experiment harness).
 
 These files are the shared source of truth. If they contradict each other or the code, do not silently "fix" either side — investigate, report, and ask the user before overriding an established decision.
 
