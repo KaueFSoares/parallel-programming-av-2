@@ -53,9 +53,9 @@ flowchart LR
   - Step Functions Map `MaxConcurrency` (inline and Distributed) — validated; note AWS ceilings (inline 40, Distributed 10,000) and Floci's identical handling.
   - Lambda reserved concurrency and Floci's per-region concurrent-execution limit (default 1000, configurable).
   - Distributed Map `ItemBatcher` (`MaxItemsPerBatch`, `MaxInputBytesPerBatch`) — validated; batched Lambda children receive `{Items: [...], BatchInput}` and must aggregate the batch internally.
-- **Fan-out mechanism — recommendation after hands-on validation** [Proposed, awaiting owner confirmation]:
-  - **Primary: manifest-driven partitioning.** Preparation streams each CSV, splits it into partition files of configurable size (resynchronizing at record boundaries), and writes a manifest (one JSON item per partition with bucket/key/byte range/record count). A Distributed Map iterates the manifest (`ItemsPath: "$.units"`) with Lambda child tasks; each worker streams its partition from S3, parses, and counts. *Validated on Floci end-to-end (10-item manifest, concurrency 1 and 5, inline and Distributed).* Rationale: explicit control of unit size (the input-size independent variable), auditable completeness, parsing happens in workers (the measured unit), fewer orchestration items than row-level fan-out.
-  - **Validated alternative: Distributed Map CSV `ItemReader`** — Floci reads a headerless CSV from S3 with `CSVHeaderLocation: GIVEN` + `CSVHeaders` (30 positional names) + `CSVDelimiter: SEMICOLON`, one item per row, batching via `ItemBatcher`; *validated on the real sample (10 rows → 10 items; batches of 3/3/3/1 with `MaxItemsPerBatch: 3`).* Downsides for this project: parsing happens in the SFN engine rather than the measured workers, unit size control is indirect (byte-based batching), ~73.8M items flow through orchestration, and completeness verification is weaker. Kept as fallback.
+- **Fan-out mechanism — Confirmed (owner, 2026-10-18): manifest-driven partitioning.**
+  - **Primary:** Preparation streams each CSV, splits it into partition files of configurable size (resynchronizing at record boundaries), and writes a manifest (one JSON item per partition with bucket/key/byte range/record count). A Distributed Map iterates the manifest (`ItemsPath: "$.units"`) with Lambda child tasks; each worker streams its partition from S3, parses, and counts. *Validated on Floci end-to-end (10-item manifest, concurrency 1 and 5, inline and Distributed).* Rationale: explicit control of unit size (the input-size independent variable), auditable completeness, parsing happens in workers (the measured unit), fewer orchestration items than row-level fan-out.
+  - **Validated fallback (not the primary): Distributed Map CSV `ItemReader`** — Floci reads a headerless CSV from S3 with `CSVHeaderLocation: GIVEN` + `CSVHeaders` (30 positional names) + `CSVDelimiter: SEMICOLON`, one item per row, batching via `ItemBatcher`; *validated on the real sample (10 rows → 10 items; batches of 3/3/3/1 with `MaxItemsPerBatch: 3`).* Downsides for this project: parsing happens in the SFN engine rather than the measured workers, unit size control is indirect (byte-based batching), ~73.8M items flow through orchestration, and completeness verification is weaker.
   - JSONPath note (learned the hard way): a JSONPath Map takes items from input via `ItemsPath`, not a literal `Items` field — Floci enforces AWS schema validation.
 - **Saturation study** [Confirmed goal]: sweep concurrency from 1 upward (and vary input size) until wall time stops improving or degrades; measure per-run overhead sources (cold starts, container scheduling, I/O contention, orchestration latency).
 
@@ -111,7 +111,7 @@ flowchart LR
 | Emulator fidelity | S3/SFN in-process engines; timing artifacts; quota differences. Mitigation: validated feature set (2026-10-18 probes); measurements emulator-aware; warm-up before timed runs. |
 | Dataset scale on one machine | 16 GB data on 282 GB disk is fine; 30 GB RAM forces streaming. Full local runs may take long; subsets are the experiment workhorse. |
 | Malformed records | Policy decided: counted and skipped (accuracy not the goal); quote-aware parser must still be correct about row boundaries or counts become meaningless. |
-| Fan-out choice | Manifest-driven partitioning recommended and validated; CSV `ItemReader` kept as validated fallback — final confirmation needed from the owner. |
+| Fan-out choice | Confirmed: manifest-driven partitioning; CSV `ItemReader` kept as validated fallback. |
 | AWS cost/time of full run | One full run on AWS is planned; budget and time must be validated with the owner before execution. |
 | Consolidation bottleneck | Final merge is serial by nature; must be instrumented so it doesn't silently dominate results. |
 | Local concurrency ceilings | 500-execution Runtime API cap and 1000 region limit bound the sweep; document the binding limit per run. |
@@ -119,8 +119,6 @@ flowchart LR
 
 ## Open architectural questions
 
-1. Fan-out mechanism confirmation: manifest-driven partitioning (recommended) vs Distributed Map CSV `ItemReader` (validated fallback).
-2. Final experiment parameter sets (concurrency levels, partition sizes, repetition counts) — defaults proposed, to be fixed in the methodology.
-3. Partitioning implementation details: byte-range resync vs record-count splits; part 0's size imbalance handling.
-4. AWS credentials setup timing and full-run budget (account exists).
-5. Aggregation output JSON shape (dimensions decided; format is an implementation detail).
+1. Final experiment parameter sets (concurrency levels, partition sizes, repetition counts) — defaults proposed, to be fixed in the methodology.
+2. Partitioning implementation details: byte-range resync vs record-count splits; part 0's size imbalance handling.
+3. AWS credentials setup timing and full-run budget (account exists).

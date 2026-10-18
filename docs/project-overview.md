@@ -24,7 +24,7 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 
 ## Expected processing outcomes
 
-- **Decided (owner delegated the choice):** a single-pass aggregation producing one JSON document at the end of the pipeline. Every input line is read exactly once; the pipeline counts records by dimension — counts by UF, municipality, CNAE principal, situação cadastral, and matriz/filial flag, plus total and malformed-record counts. All dimensions are positional columns on every row, so no joins or lookups are needed. The exact JSON shape is an implementation detail; the workload is a pure map-reduce over all 73.8M rows.
+- **Confirmed:** a single-pass aggregation producing one JSON document at the end of the pipeline. Every input line is read exactly once; the pipeline counts records by dimension — counts by UF, municipality, CNAE principal, situação cadastral, and matriz/filial flag, plus total and malformed-record counts. All dimensions are positional columns on every row, so no joins or lookups are needed. The exact JSON shape is an implementation detail; the workload is a pure map-reduce over all 73.8M rows.
 - **Accuracy note (explicit owner statement):** aggregation accuracy is not the objective — the project measures concurrency gains. Malformed lines are counted and skipped (see `docs/architecture.md`).
 
 ## Functional requirements
@@ -88,7 +88,7 @@ Process Brazil's Federal Revenue Service (Receita Federal) CNPJ "Estabelecimento
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Aggregation dimensions and output shape | Decided by delegation (single-pass counts, one JSON); owner may still adjust |
+| 1 | Aggregation dimensions and output shape | Confirmed: single-pass counts (UF, municipality, CNAE principal, situação cadastral, matriz/filial) → one JSON |
 | 2 | Official RFB field-name layout document | Minor — positional schema used; cross-check optional |
 | 3 | Full dataset is well-formed | Policy applied: malformed lines counted and skipped (accuracy not the goal) |
 | 4 | Estabelecimentos0 size imbalance | Resolved — real release imbalance (31.0M vs ~4.75M records/part) |
