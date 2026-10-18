@@ -80,7 +80,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     composeMb: parseComposeMb("64,256,1024"),
     bucket: undefined,
     rawPrefix: "raw",
-    endpoint: process.env.AWS_ENDPOINT_URL ?? "http://localhost:4566",
+    endpoint: process.env.AWS_ENDPOINT_URL ?? "",
     region: "us-east-1",
     uploadRaw: false,
   };

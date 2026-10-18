@@ -60,7 +60,7 @@ function parseArgs(argv: string[]): Args {
     warmup: Number(get("--warmup", "1")),
     bucket: get("--bucket", "cnpj-pipeline-000000000000") ?? "",
     stateMachine: get("--state-machine", "cnpj-pipeline") ?? "",
-    endpoint: get("--endpoint", process.env.AWS_ENDPOINT_URL ?? "http://localhost:4566") ?? "",
+    endpoint: get("--endpoint", process.env.AWS_ENDPOINT_URL ?? "") ?? "",
     region: get("--region", process.env.AWS_DEFAULT_REGION ?? "us-east-1") ?? "",
     account: get("--account", process.env.AWS_ACCOUNT ?? "000000000000") ?? "",
     out: get("--out", join("data", "results", `exp-${Date.now()}.json`)) ?? "",
