@@ -103,6 +103,18 @@ Same stack, same code, same full dataset (73,809,379 rows, 264 × 64 MiB units),
 2. **The AWS baseline is 6.4× slower than the local one** (823.7 s vs 128.1 s): a 1024 MB Lambda gets ≈0.58 vCPU versus a full local core, and each of the 264 units pays real S3 round-trip latency and per-invocation overhead that a full-core local process amortizes differently. Aggregate peak throughput (≈2.45 M rows/s at p = 64) is in the same range as the local peak (≈2.42 M rows/s at p = 12) — a useful consistency anchor.
 3. **Efficiency declines gracefully** (0.88 at p = 8 → 0.43 at p = 64) — no cliff, no thrashing, consistent with per-invocation fixed costs (container spin-up, S3 latency, Step Functions child scheduling) growing with concurrency.
 4. **Real-world variance is higher than local:** the p = 4 series shows a 307.6 s outlier (~50% above its siblings), attributable to cold starts / S3 variance; repetitions remain essential on real infrastructure.
-5. **Where scaling ends on AWS remains open** (quota now 1000): the natural follow-up is p ∈ {96, 128, 256} to find the AWS knee, plus the memory-size probe (1024 vs 1769 MB) to isolate the vCPU effect on the baseline.
+5. **Where scaling ends on AWS — answered (same session):** with 16 MiB units (1,033 units, the finest granularity that supports high concurrency), the knee is **p ≈ 256–384**: fan-out stops improving at ~256 and total time plateaus at ~58 s from p = 384 to p = 512 (58.1 s → 58.3 s — the extra step past the knee shows a flat gap, not degradation). At that point the **serial consolidation stage (~34 s, 1,033 sequential GETs) becomes the Amdahl's-law bound**: fan-out is only ~24 s, so no amount of additional parallelism can help. With 64 MiB units (264 units), the curve keeps improving to p = 256 (21.5 s, 38.3×, 3.43 M rows/s — a single wave), which is the hard limit of unit count at that granularity. Granularity also matters on AWS (unlike locally): 16 MiB best (58 s) vs 64 MiB best (21.5 s) — finer units multiply per-invocation overhead 4×.
 
-Raw records: `data/results/aws-exp-64mb-full.json`; table: `data/results/aws-64mb.md`.
+| units | p | mean (ms) | throughput (rows/s) | speedup | efficiency |
+|---|---|---|---|---|---|
+| 64 MiB | 96 | 24,388 | 3,026,504 | 33.77 | 0.35 |
+| 64 MiB | 128 | 24,626 | 2,997,213 | 33.45 | 0.26 |
+| 64 MiB | 256 | **21,508** | **3,431,717** | **38.30** | 0.15 |
+| 16 MiB | 1 | 1,537,846 | 47,995 | 1.00 | 1.00 |
+| 16 MiB | 64 | 83,573 | 883,173 | 18.40 | 0.29 |
+| 16 MiB | 128 | 68,438 | 1,078,485 | 22.47 | 0.18 |
+| 16 MiB | 256 | 60,573 | 1,218,519 | 25.39 | 0.10 |
+| 16 MiB | 384 | **58,102** | **1,270,349** | **26.47** | 0.07 |
+| 16 MiB | 512 | 58,318 | 1,265,644 | 26.37 | 0.05 |
+
+Raw records: `data/results/aws-exp-64mb-all.json`, `data/results/aws-exp-16mb-full.json`; tables: `data/results/aws-64mb.md`, `data/results/aws-16mb.md`.
