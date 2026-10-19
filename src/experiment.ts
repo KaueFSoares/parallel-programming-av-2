@@ -159,6 +159,40 @@ async function main(): Promise<void> {
   console.log(`stateMachine=${args.stateMachine} reps=${args.reps} warmup=${args.warmup} concurrency=[${args.concurrency.join(", ")}]`);
 
   const records: RunRecord[] = [];
+  const save = () => {
+    mkdirSync(dirname(args.out), { recursive: true });
+    writeFileSync(args.out, JSON.stringify(records, null, 2));
+  };
+  const runOne = async (base: PipelineInput, runId: string, warmup: boolean) => {
+    try {
+      const { record, output } = await runPipeline(sfn, stateMachineArn, { ...base, outPrefix: `runs/${runId}` }, args.timeoutMs);
+      records.push({ runId, config: { ...config, maxConcurrency: base.maxConcurrency }, ...record, ...(warmup ? { warmup: true } : {}) });
+      console.log(
+        `${warmup ? "warmup" : "run   "} c=${base.maxConcurrency} status=${record.status} total=${record.totalMs}ms fanOut=${record.fanOutMs}ms cons=${record.consolidateMs}ms verify=${output?.verified ?? "-"} rows=${output?.rows.toLocaleString("en-US") ?? "-"}`,
+      );
+      if (output && (!output.verified || !output.rowsMatched)) {
+        console.error(`WARNING: verification failed for ${runId}:`, JSON.stringify(output));
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      records.push({
+        runId,
+        config: { ...config, maxConcurrency: base.maxConcurrency },
+        status: "ERROR",
+        ...(warmup ? { warmup: true } : {}),
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        totalMs: -1,
+        fanOutMs: -1,
+        consolidateMs: -1,
+        result: undefined,
+        error: msg,
+      });
+      console.error(`ERROR c=${base.maxConcurrency} ${runId}: ${msg}`);
+    }
+    save();
+  };
+
   for (const maxConcurrency of args.concurrency) {
     const base: PipelineInput = {
       bucket: args.bucket,
@@ -169,33 +203,14 @@ async function main(): Promise<void> {
       outPrefix: "",
     };
     for (let i = 0; i < args.warmup; i++) {
-      const runId = `warm-${config.unitsMb}mb-c${maxConcurrency}-${i}-${Date.now()}`;
-      const { record, output } = await runPipeline(sfn, stateMachineArn, { ...base, outPrefix: `runs/${runId}` }, args.timeoutMs);
-      records.push({
-        runId,
-        config: { ...config, maxConcurrency },
-        ...record,
-        warmup: true,
-      });
-      console.log(
-        `warmup c=${maxConcurrency} status=${record.status} total=${record.totalMs}ms fanOut=${record.fanOutMs}ms verify=${output?.verified ?? "-"}`,
-      );
+      await runOne(base, `warm-${config.unitsMb}mb-c${maxConcurrency}-${i}-${Date.now()}`, true);
     }
     for (let i = 0; i < args.reps; i++) {
-      const runId = `run-${config.unitsMb}mb-c${maxConcurrency}-${i}-${Date.now()}`;
-      const { record, output } = await runPipeline(sfn, stateMachineArn, { ...base, outPrefix: `runs/${runId}` }, args.timeoutMs);
-      records.push({ runId, config: { ...config, maxConcurrency }, ...record });
-      console.log(
-        `run    c=${maxConcurrency} status=${record.status} total=${record.totalMs}ms fanOut=${record.fanOutMs}ms cons=${record.consolidateMs}ms verify=${output?.verified ?? "-"} rows=${output?.rows.toLocaleString("en-US") ?? "-"}`,
-      );
-      if (output && (!output.verified || !output.rowsMatched)) {
-        console.error(`WARNING: verification failed for ${runId}:`, JSON.stringify(output));
-      }
+      await runOne(base, `run-${config.unitsMb}mb-c${maxConcurrency}-${i}-${Date.now()}`, false);
     }
   }
 
-  mkdirSync(dirname(args.out), { recursive: true });
-  writeFileSync(args.out, JSON.stringify(records, null, 2));
+  save();
   console.log(`results written to ${args.out}`);
 }
 

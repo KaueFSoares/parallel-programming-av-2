@@ -66,7 +66,7 @@ Raw records: `data/results/exp-{64,256,1024}mb.json`; combined table: `data/resu
 3. The saturation ceiling is dominated by shared infrastructure — the single emulated S3 service and CPU contention — rather than by the partitioning strategy; unit sizes from 64 MiB to 1 GiB are statistically interchangeable.
 4. The completeness instrumentation (manifest accounting + per-run verification) held across all 78 executions: correctness is machine-checked, not assumed.
 
-**Emulator caveat:** these absolute numbers are Floci-local. Real AWS would distribute S3 throughput and schedule Lambda differently, so the ceiling would likely move; but the qualitative shape — sublinear speedup, a saturation knee near the CPU bound, and negative returns beyond it — is a property of the workload, not of the emulator. This is exactly what the local/AWS comparison phase should confirm.
+**Emulator caveat — confirmed by the AWS run (see §7):** the local ceiling was an emulator artifact. On real AWS the same workload kept scaling to the largest tested concurrency (p = 64, speedup 27.4×) with no saturation. The qualitative local lessons (sublinear speedup, declining efficiency, shared-resource ceilings) hold; the *where* of the ceiling is environment-specific.
 
 ## 6. Reproduction
 
@@ -81,14 +81,28 @@ npm run experiment -- --manifest data/manifests/units-64mb.json \
 npm run report -- data/results/exp-64mb.json data/results/exp-256mb.json data/results/exp-1024mb.json --out data/results/combined.md
 ```
 
-## 7. Planned AWS comparison
+## 7. Real AWS results (executed 2026-10-19)
 
-The local curve already shows where real AWS should change the picture: the ceiling was attributed to the **single in-process emulated S3 service** and CPU saturation. On real AWS, S3 throughput is distributed, so the interesting question is whether speedup keeps climbing past the local peak (p = 12) instead of degrading. The plan therefore skips the low-concurrency ladder (already characterized locally, where the emulator is faithful) and brackets the region of interest:
+Same stack, same code, same full dataset (73,809,379 rows, 264 × 64 MiB units), 3 reps + warm-up per configuration; every run `verified=true`. Account `525442556786`, us-east-1; Lambda concurrency quota raised from 10 to 1000 for this run.
 
-- **Level 0 — smoke:** sample manifest, p = 1. Validates IAM, deploy, and end-to-end correctness on real AWS. (~$0.01)
-- **Level 1 — core comparison (recommended):** full dataset, 64 MiB units, p ∈ {1, 12, 32, 64}, 3 reps + 1 warm-up each (16 runs). p = 1 is the AWS baseline (do not reuse the local T(1)); p = 12 is the local peak; p = 32 the local degradation point; p = 64 tests whether scaling continues where the emulator stopped. Estimated **≈ $0.17 compute** + ~$0.37/month storage (16 GiB, prorated) — under $0.50 all-in.
-- **Level 1b — optional memory probe:** p = 32 with worker memory 1024 vs 1769 MB (2 runs, ~$0.02) to see how Lambda's per-worker vCPU allocation shifts the baseline.
-- **Level 2 — conditional full ladder:** p ∈ {1…128} × 3 reps (~44 runs, ≈ $0.60) — only if Level 1 shows the curve moved materially.
-- **Level 3 — optional cold-start pass:** measure the p = 64 wave with forced cold starts (~$0.10).
+| p | mean (ms) | min–max (ms) | throughput (rows/s) | speedup | efficiency |
+|---|---|---|---|---|---|
+| 1 | 823,664 | 819,142–826,878 | 89,611 | 1.00 | 1.00 |
+| 4 | 241,701 | 207,752–307,618 | 305,374 | 3.41 | 0.85 |
+| 8 | 116,930 | 114,067–121,954 | 631,227 | 7.04 | 0.88 |
+| 10 | 96,812 | 95,861–98,047 | 762,399 | 8.51 | 0.85 |
+| 12 | 83,986 | 81,690–86,874 | 878,826 | 9.81 | 0.82 |
+| 16 | 65,010 | 64,574–65,873 | 1,135,354 | 12.67 | 0.79 |
+| 24 | 49,416 | 47,257–53,552 | 1,493,623 | 16.67 | 0.69 |
+| 32 | 42,594 | 41,457–43,404 | 1,732,872 | 19.34 | 0.60 |
+| 64 | 30,093 | 27,410–31,666 | 2,452,709 | 27.37 | 0.43 |
 
-Per-run cost model (us-east-1, 2026 list prices): Lambda ≈ $0.0025 (≈150 GB-s @ 1024 MB + 265 requests), Step Functions ≈ $0.007 (≈270 state transitions: 264 child worker states + parent Map + consolidate), S3 ≈ $0.002 (≈530 requests). Total ≈ **$0.011 per full-dataset run**; the whole program fits within roughly **$1–3** including a month of storage. The dominant human-time cost is the one-time 16 GiB upload (bandwidth-dependent); the data is uploaded once and reused by every run.
+**Analysis:**
+
+1. **The local saturation was an emulator artifact.** On AWS the curve keeps climbing through p = 64 (27.4× speedup, wall time 823.7 s → 30.1 s) with no degradation — the local ceiling (4.2× at p = 12) was set by Floci's single in-process S3 service and container scheduling, exactly as hypothesized.
+2. **The AWS baseline is 6.4× slower than the local one** (823.7 s vs 128.1 s): a 1024 MB Lambda gets ≈0.58 vCPU versus a full local core, and each of the 264 units pays real S3 round-trip latency and per-invocation overhead that a full-core local process amortizes differently. Aggregate peak throughput (≈2.45 M rows/s at p = 64) is in the same range as the local peak (≈2.42 M rows/s at p = 12) — a useful consistency anchor.
+3. **Efficiency declines gracefully** (0.88 at p = 8 → 0.43 at p = 64) — no cliff, no thrashing, consistent with per-invocation fixed costs (container spin-up, S3 latency, Step Functions child scheduling) growing with concurrency.
+4. **Real-world variance is higher than local:** the p = 4 series shows a 307.6 s outlier (~50% above its siblings), attributable to cold starts / S3 variance; repetitions remain essential on real infrastructure.
+5. **Where scaling ends on AWS remains open** (quota now 1000): the natural follow-up is p ∈ {96, 128, 256} to find the AWS knee, plus the memory-size probe (1024 vs 1769 MB) to isolate the vCPU effect on the baseline.
+
+Raw records: `data/results/aws-exp-64mb-full.json`; table: `data/results/aws-64mb.md`.
