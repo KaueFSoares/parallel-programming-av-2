@@ -117,4 +117,4 @@ Same stack, same code, same full dataset (73,809,379 rows, 264 × 64 MiB units),
 | 16 MiB | 384 | **58,102** | **1,270,349** | **26.47** | 0.07 |
 | 16 MiB | 512 | 58,318 | 1,265,644 | 26.37 | 0.05 |
 
-Raw records: `data/results/aws-exp-64mb-all.json`, `data/results/aws-exp-16mb-full.json`; tables: `data/results/aws-64mb.md`, `data/results/aws-16mb.md`.
+Raw records: `data/results/aws-exp-64mb-all.json`, `data/results/aws-exp-16mb-full.json`; tables: `data/results/aws-64mb.md`, `data/results/aws-16mb.md`. (AWS resources were destroyed after the run on 2026-10-19; the raw result files above preserve all measurements.)
